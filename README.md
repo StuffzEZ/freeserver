@@ -1,2 +1,2 @@
-# freeserver
-soon....
+[# freeserver
+](https://stuffzez.github.io/sfs/)
