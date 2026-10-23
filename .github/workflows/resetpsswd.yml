@@ -13,9 +13,10 @@ permissions:
 jobs:
   # -------------------------------------------------------------
   # JOB 1: Process initial password reset request issue
+  # (Only runs if the issue body contains the encrypted email block)
   # -------------------------------------------------------------
   handle-reset-request:
-    if: ${{ github.event.issue && !github.event.comment }}
+    if: ${{ github.event.issue && !github.event.comment && contains(github.event.issue.body, '# START EMAIL') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
