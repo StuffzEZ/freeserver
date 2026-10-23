@@ -2,7 +2,7 @@
 name: Password Reset
 about: Reset your password.
 title: "[PWRes] PASSWORD RESET REQUEST"
-labels: ''
+labels: reset
 assignees: ''
 
 ---
