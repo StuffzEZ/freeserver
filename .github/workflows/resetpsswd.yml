@@ -26,7 +26,6 @@ jobs:
         with:
           node-version: '20'
 
-      # Install nodemailer so require('nodemailer') works successfully
       - name: Install Dependencies
         run: npm install nodemailer
 
@@ -56,15 +55,14 @@ jobs:
 
             const encryptedBase64 = match[1].trim().replace(/\s+/g, '');
 
-            // 2. Decrypt using RSA Private Key (RSA-OAEP / SHA-256)
+            // 2. Decrypt using PKCS1 v1.5 Padding (matching browser JSEncrypt)
             let decryptedEmail = '';
             try {
               const buffer = Buffer.from(encryptedBase64, 'base64');
               const decrypted = crypto.privateDecrypt(
                 {
                   key: privateKey,
-                  padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
-                  oaepHash: 'sha256',
+                  padding: crypto.constants.RSA_PKCS1_PADDING,
                 },
                 buffer
               );
