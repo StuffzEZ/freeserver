@@ -13,7 +13,6 @@ permissions:
 jobs:
   # -------------------------------------------------------------
   # JOB 1: Process initial password reset request issue
-  # (Only runs if the issue body contains the encrypted email block)
   # -------------------------------------------------------------
   handle-reset-request:
     if: ${{ github.event.issue && !github.event.comment && contains(github.event.issue.body, '# START EMAIL') }}
@@ -26,6 +25,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
+
+      # Install nodemailer so require('nodemailer') works successfully
+      - name: Install Dependencies
+        run: npm install nodemailer
 
       - name: Decrypt Email & Send Verification Code via Gmail
         uses: actions/github-script@v7
