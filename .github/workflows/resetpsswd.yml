@@ -78,8 +78,6 @@ jobs:
               return;
             }
 
-            console.log(`Successfully decrypted request for email: ${decryptedEmail}`);
-
             // 3. Generate a deterministic 6-digit code based on Issue # and Secret Key
             const verificationCode = crypto
               .createHmac('sha256', privateKey)
