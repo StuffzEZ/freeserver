@@ -1,6 +1,6 @@
 ---
-name: SFS Issue Report
-about: Report an issue with SFS (Stuf_y's Free Server)
+name: General Bug
+about: Report a general issue with SFS (Stuf_y's Free Server)
 title: "[SFSB] "
 labels: bug
 assignees: ''
@@ -8,7 +8,7 @@ type: Bug
 
 ---
 
-**What is your issue with SFS?**
+**What is your issue?**
 
 
 **What apps does this link to, if any?**
