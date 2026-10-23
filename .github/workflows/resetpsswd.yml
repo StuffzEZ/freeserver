@@ -1,0 +1,192 @@
+name: Process SFS Password Reset Request
+
+on:
+  issues:
+    types: [opened, reopened, edited]
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  # -------------------------------------------------------------
+  # JOB 1: Process initial password reset request issue
+  # -------------------------------------------------------------
+  handle-reset-request:
+    if: ${{ github.event.issue && !github.event.comment }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Decrypt Email & Send Verification Code via Gmail
+        uses: actions/github-script@v7
+        env:
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          RSA_PRIVATE_KEY: ${{ secrets.RSA_PRIVATE_KEY }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_PASS: ${{ secrets.GMAIL_PASS }}
+        with:
+          script: |
+            const crypto = require('crypto');
+            const nodemailer = require('nodemailer');
+
+            const body = process.env.ISSUE_BODY || '';
+            const issueNumber = process.env.ISSUE_NUMBER;
+            const privateKey = process.env.RSA_PRIVATE_KEY;
+
+            // 1. Extract content between `# START EMAIL` and `# END EMAIL`
+            const match = body.match(/# START EMAIL\s*([\s\S]*?)\s*# END EMAIL/i);
+            if (!match) {
+              console.log("No encrypted email block found in issue body.");
+              return;
+            }
+
+            const encryptedBase64 = match[1].trim().replace(/\s+/g, '');
+
+            // 2. Decrypt using RSA Private Key (RSA-OAEP / SHA-256)
+            let decryptedEmail = '';
+            try {
+              const buffer = Buffer.from(encryptedBase64, 'base64');
+              const decrypted = crypto.privateDecrypt(
+                {
+                  key: privateKey,
+                  padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+                  oaepHash: 'sha256',
+                },
+                buffer
+              );
+              decryptedEmail = decrypted.toString('utf8');
+            } catch (err) {
+              core.setFailed("RSA Decryption failed: " + err.message);
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: "❌ **Error:** Failed to decrypt the password reset payload. Please re-encrypt using the official tool and update this issue."
+              });
+              return;
+            }
+
+            console.log(`Successfully decrypted request for email: ${decryptedEmail}`);
+
+            // 3. Generate a deterministic 6-digit code based on Issue # and Secret Key
+            const verificationCode = crypto
+              .createHmac('sha256', privateKey)
+              .update(`reset-code-${issueNumber}`)
+              .digest('hex')
+              .substring(0, 6)
+              .toUpperCase();
+
+            // 4. Send Email via Gmail SMTP
+            const repoUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/issues/${issueNumber}`;
+
+            const transporter = nodemailer.createTransport({
+              service: 'gmail',
+              auth: {
+                user: process.env.GMAIL_USER,
+                pass: process.env.GMAIL_PASS,
+              },
+            });
+
+            const emailSubject = `[stuf_y sfs] Verify Your Password Reset Request (#${issueNumber})`;
+            const emailHtml = `
+              <div style="font-family: monospace; background-color: #232325; color: #c3c2cf; padding: 24px; border-radius: 8px;">
+                <h2 style="color: #ffffff; margin-top: 0;">stuf_y's sfs password reset request</h2>
+                <p>You requested a password reset for: <strong>${decryptedEmail}</strong></p>
+                <p>Your verification code is:</p>
+                <div style="font-size: 24px; font-weight: bold; background: #1b1b1d; color: #6366f1; padding: 12px; border-radius: 6px; display: inline-block; letter-spacing: 4px; border: 1px solid #343438;">
+                  ${verificationCode}
+                </div>
+                <p style="margin-top: 20px;">Click the link below to go to your issue and comment with this code:</p>
+                <p>
+                  <a href="${repoUrl}" style="background-color: #6366f1; color: white; padding: 10px 18px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+                    Verify Request on GitHub &rarr;
+                  </a>
+                </p>
+                <p style="font-size: 12px; color: #787788;">If you did not request this, you can safely ignore this email.</p>
+              </div>
+            `;
+
+            await transporter.sendMail({
+              from: `"stuf_y sfs" <${process.env.GMAIL_USER}>`,
+              to: decryptedEmail,
+              subject: emailSubject,
+              html: emailHtml,
+            });
+
+            // 5. Post confirmation comment to the issue
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: "📬 **Verification Email Sent via Gmail!**\n\nWe have sent a verification code to the email address tied to this encrypted request. Please reply to this issue with the **6-character verification code** to complete validation."
+            });
+
+  # -------------------------------------------------------------
+  # JOB 2: Verify user comment against code & assign issue
+  # -------------------------------------------------------------
+  verify-code-comment:
+    if: ${{ github.event.comment && !github.event.comment.user.bot }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Code
+        uses: actions/github-script@v7
+        env:
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          RSA_PRIVATE_KEY: ${{ secrets.RSA_PRIVATE_KEY }}
+        with:
+          script: |
+            const crypto = require('crypto');
+
+            const commentBody = (process.env.COMMENT_BODY || '').trim().toUpperCase();
+            const issueNumber = process.env.ISSUE_NUMBER;
+            const privateKey = process.env.RSA_PRIVATE_KEY;
+
+            // Calculate expected code
+            const expectedCode = crypto
+              .createHmac('sha256', privateKey)
+              .update(`reset-code-${issueNumber}`)
+              .digest('hex')
+              .substring(0, 6)
+              .toUpperCase();
+
+            // Check if comment contains the code
+            if (commentBody.includes(expectedCode)) {
+              console.log("Verification code matched!");
+
+              // 1. Add 'verified' label
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                labels: ['verified']
+              });
+
+              // 2. Assign to stuffzez
+              await github.rest.issues.addAssignees({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                assignees: ['stuffzez']
+              });
+
+              // 3. Post confirmation comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: "✅ **Verification Successful!**\n\nThis issue has been marked as **verified** and assigned to @stuffzez for manual account reset processing."
+              });
+            } else {
+              console.log("Comment did not match verification code.");
+            }
